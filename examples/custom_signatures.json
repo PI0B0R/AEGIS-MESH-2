@@ -1,0 +1,9 @@
+[
+  {"id": "agh-panel", "name": "Panel wydzialowy", "category": "admin_panel", "path": "/panel",
+   "rules": [{"type": "title", "regex": "Panel wydzia"}]},
+  {"id": "x-app-version", "name": "Naglowek X-App-Version", "category": "header",
+   "rules": [{"type": "header", "name": "X-App-Version"}],
+   "version": {"source": "header:x-app-version", "regex": "([\\d.]+)"}},
+  {"id": "sesja-keycloak", "name": "Keycloak (ciasteczko)", "category": "admin_panel",
+   "rules": [{"type": "cookie", "name_regex": "^KEYCLOAK_|^AUTH_SESSION_ID"}]}
+]

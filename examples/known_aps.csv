@@ -1,0 +1,3 @@
+bssid,ssid,security,building,floor,room
+aa:bb:cc:00:00:01,AGH-LAB,[WPA2-EAP-CCMP],B1,2,201
+aa:bb:cc:00:00:02,eduroam,[WPA2-EAP-CCMP],B1,2,210

@@ -1,0 +1,7 @@
+{"sensor_id": "PHONE-APK-01",
+ "location": {"lat": 50.0662, "lng": 19.9196, "accuracy": 12, "time": 0, "building": "B1", "floor": "2", "room": "204", "source": "qr"},
+ "networks": [
+  {"ssid": "AGH-LAB", "bssid": "aa:bb:cc:00:00:01", "rssi_dbm": -48, "frequency_mhz": 5180, "security": "[WPA2-EAP-CCMP][ESS]"},
+  {"ssid": "AGH-LAB", "bssid": "de:ad:be:ef:00:10", "rssi_dbm": -40, "frequency_mhz": 2437, "security": "[ESS]"},
+  {"ssid": "iPhone (Marek)", "bssid": "62:11:22:33:44:55", "rssi_dbm": -60, "frequency_mhz": 2462, "security": "[WPA2-PSK-CCMP][ESS]"}
+ ]}

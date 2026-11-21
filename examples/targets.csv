@@ -1,0 +1,4 @@
+value,owner,tags,notes
+10.10.0.0/24,CBI,lab,siec laboratoryjna
+192.168.50.10,Wydzial EAIiIB,www,serwer WWW
+intranet.example.org,IT,intranet,

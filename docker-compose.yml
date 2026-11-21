@@ -1,0 +1,15 @@
+# Uruchomienie: AEGIS_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())") docker compose up -d
+services:
+  aegis:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      AEGIS_KEY: ${AEGIS_KEY:?ustaw AEGIS_KEY (base64, 32 bajty)}
+      AEGIS_ADMIN_PASSWORD: ${AEGIS_ADMIN_PASSWORD:-}
+      AEGIS_PORTS: ${AEGIS_PORTS:-21,22,23,25,53,80,110,143,443,445,3306,3389,5432,5900,6379,8000,8080,8081,8443,8888,9000,9200}
+      AEGIS_MAX_RATE: ${AEGIS_MAX_RATE:-300}
+    cap_add: [NET_RAW, NET_ADMIN]   # SYN scan i ICMP w nmapie
+    volumes: ["aegis-data:/data"]
+    restart: unless-stopped
+volumes:
+  aegis-data:

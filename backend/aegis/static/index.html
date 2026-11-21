@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AEGIS-MESH</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--muted:#677084;--line:#e3e6ec;--accent:#2457d6;--good:#1f8a4c;--warn:#b7791f;--bad:#c53030;--chip:#eef2fb}
+@media (prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1b2029;--ink:#e6e9ef;--muted:#98a1b3;--line:#2a313d;--accent:#6d97ff;--chip:#232b3a}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header b{font-size:16px}nav{display:flex;gap:4px;flex-wrap:wrap}nav button{background:none;border:0;padding:6px 10px;border-radius:6px;color:var(--muted);cursor:pointer;font:inherit}
+nav button.on{background:var(--chip);color:var(--ink);font-weight:600}.sp{flex:1}
+main{padding:20px;max-width:1400px;margin:auto}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+h2{font-size:16px;margin:0 0 12px}h3{font-size:14px;margin:12px 0 6px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.kpi .v{font-size:26px;font-weight:600}.kpi .l{color:var(--muted);font-size:12px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500;font-size:12px}
+tr.click{cursor:pointer}tr.click:hover{background:var(--chip)}.muted{color:var(--muted)}.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.b{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600;background:var(--chip);margin:1px}
+.NEW,.RETURNED{background:#dbeafe;color:#1e40af}.ACTIVE,.KNOWN{background:#dcfce7;color:#166534}.UNSTABLE,.CHANGED,.HOTSPOT,.UNKNOWN{background:#fef3c7;color:#92400e}
+.GONE{background:#e5e7eb;color:#374151}.EVIL_TWIN,.ROGUE,.INTERESTING{background:#fee2e2;color:#991b1b}
+input,select,textarea{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}textarea{width:100%;min-height:90px}
+button.p,button.s{font:inherit;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);cursor:pointer}button.p{background:var(--accent);color:#fff}button.s{background:none;color:var(--accent)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}.err{color:var(--bad)}.ok{color:var(--good)}
+#modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10;overflow:auto;padding:30px}#modal .card{max-width:1000px;margin:auto}
+#login{max-width:360px;margin:12vh auto}#login input{width:100%;margin:6px 0}.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent)}
+pre{white-space:pre-wrap;word-break:break-all;background:var(--bg);padding:8px;border-radius:6px;max-height:260px;overflow:auto}
+</style>
+</head>
+<body>
+<div id="login" class="card" style="display:none">
+  <h2>AEGIS-MESH: logowanie</h2>
+  <input id="lu" placeholder="login" autocomplete="username"><input id="lp" type="password" placeholder="haslo" autocomplete="current-password">
+  <div class="row"><button class="p" onclick="doLogin()">Zaloguj</button><span id="lerr" class="err"></span></div>
+</div>
+<div id="app" style="display:none">
+<header><b>AEGIS-MESH</b><nav id="nav"></nav><span class="sp"></span><span id="who" class="muted"></span><button class="s" onclick="logout()">Wyloguj</button></header>
+<main id="main"></main>
+</div>
+<div id="modal" onclick="if(event.target.id==='modal')closeModal()"><div class="card" id="mbody"></div></div>
+<script>
+let TOKEN=null, ME=null, TAB='dash', timer=null;
+try{TOKEN=sessionStorage.getItem('aegis_token')}catch(e){}
+const $=s=>document.querySelector(s);
+const esc=v=>v==null?'':String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ts=t=>t?new Date(t*1000).toLocaleString('pl-PL'):'';
+const badge=s=>s?`<span class="b ${esc(s)}">${esc(s)}</span>`:'';
+const can=p=>ME&&ME.permissions.includes(p);
+async function api(path,opt={}){
+  const o={...opt,headers:{...(opt.headers||{}),Authorization:'Bearer '+TOKEN}};
+  if(opt.json!==undefined){o.body=JSON.stringify(opt.json);o.headers['Content-Type']='application/json';o.method=o.method||'POST'}
+  const r=await fetch(path,o);
+  if(r.status===401){showLogin();throw new Error('zaloguj sie')}
+  const ct=r.headers.get('content-type')||'';const data=ct.includes('json')?await r.json():await r.text();
+  if(!r.ok)throw new Error(data.detail||data||r.status);return data;
+}
+async function doLogin(){
+  try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:$('#lu').value,password:$('#lp').value})});
+    const d=await r.json();if(!r.ok)throw new Error(d.detail);TOKEN=d.token;try{sessionStorage.setItem('aegis_token',TOKEN)}catch(e){}start()}
+  catch(e){$('#lerr').textContent=e.message}
+}
+function showLogin(){$('#app').style.display='none';$('#login').style.display='block'}
+async function logout(){try{await api('/api/auth/logout',{method:'POST'})}catch(e){}TOKEN=null;try{sessionStorage.removeItem('aegis_token')}catch(e){}showLogin()}
+const TABS=[['dash','Pulpit','read'],['hosts','Hosty','read'],['changes','Zmiany','read'],['scans','Cele i skany','read'],['wifi','Wi-Fi','read'],
+  ['sigs','Sygnatury','read'],['dojo','DefectDojo','integrations'],['users','Uzytkownicy','admin'],['audit','Audyt','admin']];
+async function start(){
+  if(!TOKEN)return showLogin();
+  try{ME=await api('/api/me')}catch(e){return showLogin()}
+  $('#login').style.display='none';$('#app').style.display='block';$('#who').textContent=`${ME.username} (${ME.role})`;
+  $('#nav').innerHTML=TABS.filter(t=>can(t[2])).map(t=>`<button data-t="${t[0]}" onclick="go('${t[0]}')">${t[1]}</button>`).join('');
+  go(TAB);
+}
+function go(t){TAB=t;document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));clearInterval(timer);
+  ({dash:dash,hosts:hosts,changes:changes,scans:scans,wifi:wifiTab,sigs:sigs,dojo:dojo,users:users,audit:audit})[t]().catch(e=>$('#main').innerHTML=`<p class="err">${esc(e.message)}</p>`)}
+function closeModal(){$('#modal').style.display='none'}
+function modal(html){$('#mbody').innerHTML=html;$('#modal').style.display='block'}
+
+async function dash(){
+  const d=await api('/api/dashboard');const h=d.hosts;
+  const k=(v,l)=>`<div class="kpi"><div class="v">${v??0}</div><div class="l">${l}</div></div>`;
+  $('#main').innerHTML=`<div class="grid">${k((h.NEW||0)+(h.ACTIVE||0)+(h.UNSTABLE||0),'aktywne hosty')}${k(h.NEW,'nowe')}${k(h.UNSTABLE,'niestabilne')}${k(h.GONE,'zniknely')}
+  ${k(d.services,'uslugi')}${k(d.change_counts.INTERESTING,'ciekawe znaleziska')}${k(d.wifi_alerts,'alerty Wi-Fi')}</div>
+  <div class="grid" style="grid-template-columns:2fr 1fr;margin-top:16px">
+   <div class="card"><h2>Najwazniejsze niepotwierdzone zmiany</h2>${changesTable(d.changes)}</div>
+   <div><div class="card"><h2>Najciekawsze hosty</h2><table>${d.interesting.map(x=>`<tr class="click" onclick="hostModal(${x.id})"><td class="mono">${esc(x.ip)}</td><td>${esc(x.user_name||x.hostname||'')}</td><td>${badge(x.status)}</td><td><b>${x.interest}</b></td></tr>`).join('')||'<tr><td class="muted">brak</td></tr>'}</table></div>
+   <div class="card"><h2>Technologie</h2>${Object.entries(d.technologies).map(([n,c])=>`<span class="b">${esc(n)} · ${c}</span>`).join(' ')||'<span class="muted">brak</span>'}</div>
+   <div class="card"><h2>Ostatnie przebiegi</h2>${runsTable(d.runs,true)}</div></div></div>`;
+  timer=setInterval(()=>{if(TAB==='dash'&&$('#modal').style.display!=='block')dash()},15000);
+}
+function changesTable(rows){
+  if(!rows.length)return '<p class="muted">Brak zmian.</p>';
+  return `<table><tr><th>czas</th><th>zmiana</th><th>obiekt</th><th>szczegoly</th><th></th></tr>${rows.map(c=>`<tr><td class="muted">${ts(c.ts)}</td><td>${badge(c.change)}</td>
+  <td class="mono">${esc(c.ip||'')}${c.port?':'+c.port:''}</td><td>${esc(c.detail)}</td><td>${can('modify')&&!c.acknowledged?`<button class="s" onclick="ack(${c.id})">OK</button>`:''}</td></tr>`).join('')}</table>`;
+}
+async function ack(id){await api('/api/changes/'+id,{method:'PATCH',json:{acknowledged:true}});go(TAB)}
+function runsTable(rows,short){
+  return `<table><tr><th>#</th><th>status</th><th>postep</th><th>czas</th>${short?'':'<th>wynik</th><th></th>'}</tr>${rows.map(r=>{
+   const pct=r.chunks_total?Math.round(100*r.chunks_done/r.chunks_total):0;const dur=r.duration_seconds??Math.round(r.active_seconds||0);
+   return `<tr><td>${r.id}${r.kind==='import'?' <span class="muted">import</span>':''}</td><td>${badge(r.status)}${r.error?`<div class="err">${esc(r.error)}</div>`:''}</td>
+   <td style="min-width:90px"><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${r.chunks_done}/${r.chunks_total} paczek</span></td><td>${dur}s</td>
+   ${short?'':`<td class="muted">${r.stats?esc(Object.entries(r.stats).map(([k,v])=>k+': '+v).join(', ')):''}${r.dojo_status?`<div>Dojo: ${r.dojo_status.ok?'<span class="ok">OK</span>':'<span class="err">'+esc(r.dojo_status.error)+'</span>'}</div>`:''}</td>
+   <td>${can('scan')&&['running','queued'].includes(r.status)?`<button class="s" onclick="runAct(${r.id},'cancel')">Stop</button>`:''}${can('scan')&&['paused','failed'].includes(r.status)?`<button class="s" onclick="runAct(${r.id},'resume')">Wznow</button>`:''}
+   ${can('integrations')&&r.status==='completed'?`<button class="s" onclick="pushDojo(${r.id})">Do Dojo</button>`:''}</td>`}</tr>`}).join('')}</table>`;
+}
+async function runAct(id,a){await api(`/api/runs/${id}/${a}`,{json:{}});go(TAB)}
+async function pushDojo(id){try{const r=await api(`/api/runs/${id}/push-dojo`,{json:{}});alert('Wyslano: '+JSON.stringify(r))}catch(e){alert(e.message)}go(TAB)}
+
+async function hosts(){
+  $('#main').innerHTML=`<div class="card"><div class="row"><input id="hq" placeholder="szukaj IP / nazwy / tagu" onkeydown="if(event.key==='Enter')loadHosts()">
+  <select id="hs" onchange="loadHosts()"><option value="">wszystkie</option><option>NEW</option><option>ACTIVE</option><option>UNSTABLE</option><option>GONE</option></select>
+  <button class="s" onclick="loadHosts()">Szukaj</button><span class="sp"></span><a href="#" onclick="dl('/api/export/hosts.csv');return false">eksport CSV</a> · <a href="#" onclick="dl('/api/export/hosts.json');return false">JSON</a></div><div id="hl"></div></div>`;
+  loadHosts();
+}
+async function loadHosts(){
+  const p=new URLSearchParams({q:$('#hq').value,status:$('#hs').value,limit:2000});
+  const rows=await api('/api/hosts?'+p);
+  $('#hl').innerHTML=`<p class="muted">${rows.length} hostow</p><table><tr><th>IP</th><th>nazwa</th><th>status</th><th>pewnosc</th><th>priorytet</th><th>uslugi</th><th>ostatnio</th></tr>${rows.map(h=>`<tr class="click" onclick="hostModal(${h.id})">
+  <td class="mono">${esc(h.ip)}</td><td>${esc(h.user_name||h.hostname||'')}${h.user_tags?` <span class="b">${esc(h.user_tags)}</span>`:''}</td><td>${badge(h.status)}</td><td>${h.confidence??''}</td><td>${h.interest||''}</td>
+  <td class="mono">${h.services.map(s=>`<span class="b ${s.status==='GONE'?'GONE':''}">${s.port}/${esc(s.name||'')}</span>`).join('')}</td><td class="muted">${ts(h.last_seen)}</td></tr>`).join('')}</table>`;
+}
+async function dl(path){const r=await fetch(path,{headers:{Authorization:'Bearer '+TOKEN}});const b=await r.blob();const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=path.split('/').pop().split('?')[0];a.click()}
+async function hostModal(id){
+  const h=await api('/api/hosts/'+id);const loc=h.user_location||{};
+  modal(`<div class="row"><h2 style="margin:0">${esc(h.ip)} ${badge(h.status)}</h2><span class="sp"></span><button class="s" onclick="closeModal()">Zamknij</button></div>
+  <p class="muted">PTR: ${esc(h.hostname||'brak')} (${esc(h.rdns_status||'')}) · MAC: ${esc(h.mac||'n/d')} ${esc(h.vendor||'')} · OS: ${esc(h.os_guess||'?')} · metoda: ${esc(h.methods||'')} · pewnosc ${h.confidence}% · od ${ts(h.first_seen)}</p>
+  <p class="muted">Historia (najnowsze z lewej): ${h.history.map(x=>x.alive?'●':'○').join(' ')} · godziny odpowiedzi: ${esc(Object.keys(h.seen_hours).sort().join(', '))}</p>
+  <div class="card"><h3>Dane wpisane recznie (nie nadpisuje ich skan)</h3>
+   <div class="row"><input id="e_name" placeholder="nazwa" value="${esc(h.user_name||'')}"><input id="e_owner" placeholder="wlasciciel" value="${esc(h.user_owner||'')}"><input id="e_tags" placeholder="tagi, po przecinku" value="${esc(h.user_tags||'')}">
+   <select id="e_crit">${['','niska','srednia','wysoka','krytyczna'].map(v=>`<option ${v===(h.user_criticality||'')?'selected':''}>${v}</option>`).join('')}</select></div>
+   <div class="row"><input id="e_b" placeholder="budynek" value="${esc(loc.building||'')}"><input id="e_f" placeholder="pietro" value="${esc(loc.floor||'')}" size="5"><input id="e_r" placeholder="sala" value="${esc(loc.room||'')}" size="6">
+   <input id="e_lat" placeholder="lat" value="${esc(loc.lat??'')}" size="9"><input id="e_lng" placeholder="lng" value="${esc(loc.lng??'')}" size="9"></div>
+   <textarea id="e_notes" placeholder="notatki (szyfrowane)">${esc(h.user_notes||'')}</textarea>
+   ${can('modify')?`<div class="row"><button class="p" onclick="saveHost(${h.id})">Zapisz</button><span id="e_msg"></span></div>`:''}</div>
+  ${h.services.map(s=>`<div class="card"><h3>${s.port}/${s.proto} ${esc(s.name||'')} ${esc(s.product||'')} ${esc(s.version||'')} ${badge(s.status)}</h3>
+   ${s.http?`<p><b>${esc(s.http.title||'(bez tytulu)')}</b> · ${s.http.status_code} · <span class="mono">${esc(s.http.url)}</span>${s.http.final_url&&s.http.final_url!==s.http.url?' → <span class="mono">'+esc(s.http.final_url)+'</span>':''}</p>
+   <p>${s.http.technologies.map(t=>`<span class="b">${esc(t)}</span>`).join('')}</p>
+   ${s.http.flags.reasons&&s.http.flags.reasons.length?`<p>Priorytet <b>${s.http.interest}</b>: ${esc(s.http.flags.reasons.join('; '))}</p>`:''}
+   ${s.http.tls?`<p class="muted">TLS ${esc(s.http.tls.tls_version)} · CN ${esc(s.http.tls.subject_cn)} · wystawca ${esc(s.http.tls.issuer_cn)} · do ${esc(s.http.tls.not_after)} (${s.http.tls.days_left} dni)${s.http.tls.self_signed?' · samopodpisany':''}</p>`:''}
+   <details><summary>naglowki, ciasteczka, przekierowania</summary><pre>${esc(JSON.stringify({headers:s.http.headers,cookies:s.http.cookies,redirects:s.http.redirects,favicon_mmh3:s.http.favicon_hash},null,1))}</pre></details>`:''}
+   ${s.signatures.length?`<p>Sygnatury: ${s.signatures.map(x=>`<span class="b" title="${esc(x.evidence)}">${esc(x.name)}${x.version?' '+esc(x.version):''}</span>`).join('')}</p>`:''}
+   ${can('modify')?`<div class="row"><input id="sn${s.id}" placeholder="notatka do uslugi" value="${esc(s.user_notes||'')}" style="flex:1"><label><input type="checkbox" id="sf${s.id}" ${s.user_false_positive?'checked':''}> falszywy alarm</label><button class="s" onclick="saveSvc(${s.id})">Zapisz</button></div>`:''}</div>`).join('')}
+  ${h.wifi_links.length?`<div class="card"><h3>Powiazane AP Wi-Fi</h3>${h.wifi_links.map(w=>`<span class="b">${esc(w.ssid)} ${esc(w.bssid)} (${w.link_confidence}%)</span>`).join('')}</div>`:''}
+  <div class="card"><h3>Zmiany</h3>${changesTable(h.changes)}</div>`);
+}
+async function saveHost(id){
+  const num=v=>v===''?null:Number(v);const loc={building:$('#e_b').value,floor:$('#e_f').value,room:$('#e_r').value,lat:num($('#e_lat').value),lng:num($('#e_lng').value),source:'manual'};
+  const empty=!loc.building&&!loc.floor&&!loc.room&&loc.lat==null;
+  await api('/api/hosts/'+id,{method:'PATCH',json:{user_name:$('#e_name').value,user_owner:$('#e_owner').value,user_tags:$('#e_tags').value,user_criticality:$('#e_crit').value,user_notes:$('#e_notes').value,user_location:empty?null:loc}});
+  $('#e_msg').innerHTML='<span class="ok">zapisano</span>';
+}
+async function saveSvc(id){await api('/api/services/'+id,{method:'PATCH',json:{user_notes:$('#sn'+id).value,user_false_positive:$('#sf'+id).checked}});}
+
+async function changes(){
+  const rows=await api('/api/changes?limit=500');
+  $('#main').innerHTML=`<div class="card"><div class="row"><h2 style="margin:0">Zmiany miedzy przebiegami</h2><span class="sp"></span><a href="#" onclick="dl('/api/export/changes.csv');return false">eksport CSV</a></div>${changesTable(rows)}</div>
+  <div class="card"><h2>Porownaj dwa przebiegi</h2><div class="row">A <input id="ca" size="5"> B <input id="cb" size="5"><button class="s" onclick="cmp()">Porownaj</button></div><div id="cr"></div></div>`;
+}
+async function cmp(){const r=await api(`/api/compare?a=${$('#ca').value}&b=${$('#cb').value}`);
+  const l=(t,a)=>`<h3>${t} (${a.length})</h3><p class="mono">${a.map(esc).join(', ')||'<span class="muted">brak</span>'}</p>`;
+  $('#cr').innerHTML=l('Nowe hosty',r.hosts_new)+l('Znikniete hosty',r.hosts_gone)+l('Nowe uslugi',r.services_new)+l('Znikniete uslugi',r.services_gone)}
+
+async function scans(){
+  const [t,s,r]=await Promise.all([api('/api/targets'),api('/api/schedules'),api('/api/runs')]);
+  $('#main').innerHTML=`<div class="grid" style="grid-template-columns:1fr 1fr">
+  <div class="card"><h2>Cele (${t.length})</h2>
+   ${can('create')?`<textarea id="tv" placeholder="10.0.0.0/24&#10;192.168.1.10&#10;intranet.example.org"></textarea><div class="row"><input id="to" placeholder="wlasciciel"><input id="tt" placeholder="tagi"><button class="p" onclick="addT()">Dodaj</button>
+   <label class="s" style="cursor:pointer">Import CSV/JSON <input type="file" id="tf" accept=".csv,.json" style="display:none" onchange="impT()"></label></div><div id="tmsg"></div>`:''}
+   <table><tr><th>cel</th><th>rodzaj</th><th>zrodlo</th><th>wlasciciel</th><th></th></tr>${t.map(x=>`<tr><td class="mono">${esc(x.value)}</td><td>${x.kind}</td><td>${x.source}</td><td>${esc(x.owner||'')}</td>
+   <td>${can('modify')?`<button class="s" onclick="editT(${x.id},'${esc(x.value)}')">Edytuj</button>`:''}${can('delete')?`<button class="s" onclick="delT(${x.id})">Usun</button>`:''}</td></tr>`).join('')}</table></div>
+  <div><div class="card"><h2>Uruchom skan teraz</h2>${can('scan')?`<div class="row"><input id="rp" placeholder="porty (domyslne)" size="30"><input id="rr" placeholder="max pakietow/s" size="10"><input id="rpar" placeholder="rownolegle paczki" size="10"><input id="rmax" placeholder="limit minut" size="8"></div><button class="p" onclick="runNow()">Start</button>`:'<p class="muted">brak uprawnien</p>'}
+   ${can('create')?`<h3>Import gotowych wynikow (JSON/CSV)</h3><input type="file" id="rf" accept=".csv,.json" onchange="impR()"><span id="rmsg"></span>`:''}</div>
+  <div class="card"><h2>Harmonogramy</h2><table><tr><th>nazwa</th><th>co ile</th><th>okno</th><th>teraz</th><th></th></tr>${s.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.interval_minutes} min</td><td>${esc(x.window_start||'zawsze')}${x.window_end?'–'+esc(x.window_end):''}</td><td>${x.in_window?'<span class="ok">w oknie</span>':'poza oknem'}</td>
+   <td>${can('modify')?`<button class="s" onclick="togS(${x.id},${x.enabled?0:1})">${x.enabled?'Wylacz':'Wlacz'}</button>`:''}${can('delete')?`<button class="s" onclick="delS(${x.id})">Usun</button>`:''}</td></tr>`).join('')}</table>
+   ${can('create')?`<div class="row"><input id="sn" placeholder="nazwa"><input id="si" placeholder="co ile minut" size="8" value="1440"><input id="sws" placeholder="od HH:MM" size="7" value="22:00"><input id="swe" placeholder="do HH:MM" size="7" value="06:00"><button class="p" onclick="addS()">Dodaj</button></div>`:''}</div></div></div>
+  <div class="card"><h2>Przebiegi</h2>${runsTable(r,false)}</div>`;
+  timer=setInterval(()=>{if(TAB==='scans'&&r.some(x=>['running','queued'].includes(x.status)))scans()},5000);
+}
+async function addT(){const r=await api('/api/targets',{json:{values:$('#tv').value,owner:$('#to').value,tags:$('#tt').value}});$('#tmsg').textContent=JSON.stringify(r);setTimeout(scans,800)}
+async function impT(){const f=new FormData();f.append('file',$('#tf').files[0]);const r=await api('/api/targets/import',{method:'POST',body:f});alert(JSON.stringify(r));scans()}
+async function editT(id,v){const nv=prompt('Nowa wartosc celu',v);if(nv&&nv!==v){try{await api('/api/targets/'+id,{method:'PATCH',json:{value:nv}})}catch(e){alert(e.message)}scans()}}
+async function delT(id){if(confirm('Usunac cel?')){await api('/api/targets/'+id,{method:'DELETE'});scans()}}
+async function runNow(){const b={};if($('#rp').value)b.ports=$('#rp').value;if($('#rr').value)b.max_rate=+$('#rr').value;if($('#rpar').value)b.parallel=+$('#rpar').value;if($('#rmax').value)b.max_minutes=+$('#rmax').value;
+  try{await api('/api/runs',{json:b})}catch(e){alert(e.message)}scans()}
+async function impR(){const f=new FormData();f.append('file',$('#rf').files[0]);try{const r=await api('/api/import/results',{method:'POST',body:f});$('#rmsg').textContent=' zaimportowano: '+r.hosts+' hostow (przebieg '+r.run_id+')'}catch(e){$('#rmsg').textContent=e.message}}
+async function addS(){try{await api('/api/schedules',{json:{name:$('#sn').value,interval_minutes:+$('#si').value,window_start:$('#sws').value||null,window_end:$('#swe').value||null}})}catch(e){alert(e.message)}scans()}
+async function togS(id,en){await api('/api/schedules/'+id,{method:'PATCH',json:{enabled:en}});scans()}
+async function delS(id){if(confirm('Usunac harmonogram?')){await api('/api/schedules/'+id,{method:'DELETE'});scans()}}
+
+async function wifiTab(){
+  const aps=await api('/api/wifi/aps');
+  $('#main').innerHTML=`<div class="card"><div class="row"><h2 style="margin:0">Punkty dostepowe z telefonow Aegis (${aps.length})</h2><span class="sp"></span>
+  ${can('create')?`<label class="s" style="cursor:pointer">Import listy znanych AP (CSV) <input type="file" id="kf" accept=".csv" style="display:none" onchange="impK()"></label>`:''}</div>
+  <table><tr><th>klasa</th><th>SSID</th><th>BSSID</th><th>zabezp.</th><th>kanal</th><th>RSSI</th><th>miejsce</th><th>host</th><th>powody</th></tr>${aps.map(a=>{const l=a.location||{};
+  return `<tr><td>${badge(a.classification)} ${a.confidence}%</td><td>${esc(a.ssid||'(ukryty)')}</td><td class="mono">${esc(a.bssid)}</td><td>${esc(a.security)}</td><td>${a.channel??''}</td><td>${a.best_rssi}</td>
+  <td>${esc([l.building,l.floor&&'p.'+l.floor,l.room&&'s.'+l.room].filter(Boolean).join(' '))}${l.lat!=null?` <span class="muted mono">${l.lat},${l.lng}</span>`:''}</td><td class="mono">${esc(a.linked_host_ip||'')}${a.link_confidence?' ('+a.link_confidence+'%)':''}</td><td class="muted">${esc(a.reasons.join('; '))}</td></tr>`}).join('')}</table></div>`;
+}
+async function impK(){const f=new FormData();f.append('file',$('#kf').files[0]);const r=await api('/api/wifi/known/import',{method:'POST',body:f});alert('Zaimportowano '+r.imported);wifiTab()}
+
+async function sigs(){
+  const s=await api('/api/signatures');
+  $('#main').innerHTML=`<div class="card"><h2>Wlasne sygnatury (JSON)</h2><p class="muted">Tylko wykrywanie: GET bez parametrow, bez logowania. Typy regul: ${s.rule_types.join(', ')}. Kategorie: ${s.categories.join(', ')}.</p>
+  <textarea id="sj" style="min-height:220px" class="mono">${esc(JSON.stringify(s.custom.length?s.custom:[{id:"moj-panel",name:"Panel X",category:"admin_panel",path:"/panel",rules:[{type:"title",regex:"Panel X"}]}],null,2))}</textarea>
+  ${can('create')?`<div class="row"><button class="p" onclick="saveSig()">Zapisz i waliduj</button><span id="smsg"></span></div>`:''}</div>
+  <div class="card"><h2>Aktywne sygnatury (${s.all.length})</h2><table><tr><th>id</th><th>nazwa</th><th>kategoria</th><th>sciezka</th><th>zrodlo</th></tr>${s.all.map(x=>`<tr><td class="mono">${esc(x.id)}</td><td>${esc(x.name)}</td><td>${x.category}</td><td class="mono">${esc(x.path)}</td><td class="muted">${esc(x.source)}</td></tr>`).join('')}</table></div>`;
+}
+async function saveSig(){try{const r=await api('/api/signatures/custom',{method:'PUT',json:JSON.parse($('#sj').value)});$('#smsg').innerHTML=`<span class="ok">zapisano ${r.saved}</span>`}catch(e){$('#smsg').innerHTML=`<span class="err">${esc(e.message)}</span>`}}
+
+async function dojo(){
+  const s=await api('/api/integrations/defectdojo');
+  $('#main').innerHTML=`<div class="card" style="max-width:640px"><h2>DefectDojo</h2>
+  ${[['url','URL (np. https://demo.defectdojo.org)'],['api_key','klucz API'],['product_type','Product Type'],['product','Product'],['engagement','Engagement']].map(([k,l])=>`<div class="row"><span style="width:180px">${l}</span><input id="d_${k}" value="${esc(s[k]||'')}" style="flex:1"></div>`).join('')}
+  <div class="row"><label><input type="checkbox" id="d_verify" ${s.verify_tls?'checked':''}> weryfikuj certyfikat</label><label><input type="checkbox" id="d_auto" ${s.auto_push?'checked':''}> wysylaj automatycznie po kazdym przebiegu</label></div>
+  <div class="row"><button class="p" onclick="saveDojo()">Zapisz</button><button class="s" onclick="testDojo()">Test polaczenia</button><span id="dmsg"></span></div>
+  <p class="muted">Wysylka: XML nmapa jako "Nmap Scan" (reimport), obserwacje i Wi-Fi jako "Generic Findings Import", lokalizacja jako tagi endpointow.</p></div>`;
+}
+async function saveDojo(){const b={};['url','api_key','product_type','product','engagement'].forEach(k=>b[k]=$('#d_'+k).value);b.verify_tls=$('#d_verify').checked;b.auto_push=$('#d_auto').checked;await api('/api/integrations/defectdojo',{method:'PUT',json:b});$('#dmsg').innerHTML='<span class="ok">zapisano</span>'}
+async function testDojo(){const r=await api('/api/integrations/defectdojo/test',{json:{}});$('#dmsg').innerHTML=r.ok?'<span class="ok">polaczono</span>':`<span class="err">${esc(r.error||r.status)}</span>`}
+
+async function users(){
+  const [u,r]=await Promise.all([api('/api/users'),api('/api/roles')]);
+  $('#main').innerHTML=`<div class="grid" style="grid-template-columns:1fr 1fr"><div class="card"><h2>Uzytkownicy</h2><table><tr><th>login</th><th>rola</th><th>aktywny</th><th></th></tr>${u.map(x=>`<tr><td>${esc(x.username)}</td>
+  <td><select onchange="setRole(${x.id},this.value)">${r.roles.map(z=>`<option ${z.name===x.role?'selected':''}>${esc(z.name)}</option>`).join('')}</select></td><td>${x.active?'tak':'nie'}</td>
+  <td><button class="s" onclick="tok(${x.id})">Token API</button><button class="s" onclick="setAct(${x.id},${x.active?0:1})">${x.active?'Zablokuj':'Odblokuj'}</button></td></tr>`).join('')}</table>
+  <h3>Nowy uzytkownik</h3><div class="row"><input id="nu" placeholder="login"><input id="np" type="password" placeholder="haslo (min. 10)"><select id="nr">${r.roles.map(z=>`<option>${esc(z.name)}</option>`).join('')}</select><button class="p" onclick="addU()">Dodaj</button></div><div id="umsg" class="mono"></div></div>
+  <div class="card"><h2>Role</h2><table><tr><th>rola</th><th>uprawnienia</th><th>opis</th></tr>${r.roles.map(z=>`<tr><td>${esc(z.name)}${z.builtin?'':' <button class="s" onclick="delRole(\''+esc(z.name)+'\')">Usun</button>'}</td><td>${z.permissions.map(p=>`<span class="b">${p}</span>`).join('')}</td><td class="muted">${esc(z.description||'')}</td></tr>`).join('')}</table>
+  <h3>Nowa rola</h3><div class="row"><input id="rn" placeholder="nazwa"></div><div class="row">${Object.entries(r.permissions).map(([p,d])=>`<label title="${esc(d)}"><input type="checkbox" class="rp" value="${p}"> ${p}</label>`).join('')}</div><button class="p" onclick="addRole()">Zapisz role</button></div></div>`;
+}
+async function setRole(id,role){await api('/api/users/'+id,{method:'PATCH',json:{role}})}
+async function setAct(id,a){await api('/api/users/'+id,{method:'PATCH',json:{active:a}});users()}
+async function tok(id){const r=await api(`/api/users/${id}/token`,{json:{}});prompt('Token API (pokazywany tylko raz):',r.api_token)}
+async function addU(){try{const r=await api('/api/users',{json:{username:$('#nu').value,password:$('#np').value||null,role:$('#nr').value}});$('#umsg').textContent=r.api_token?'Token API (zapisz teraz): '+r.api_token:'dodano';setTimeout(users,r.api_token?8000:300)}catch(e){$('#umsg').textContent=e.message}}
+async function addRole(){const perms=[...document.querySelectorAll('.rp:checked')].map(x=>x.value);try{await api('/api/roles',{json:{name:$('#rn').value,permissions:perms}});users()}catch(e){alert(e.message)}}
+async function delRole(n){try{await api('/api/roles/'+n,{method:'DELETE'});users()}catch(e){alert(e.message)}}
+async function audit(){const a=await api('/api/audit?limit=300');$('#main').innerHTML=`<div class="card"><h2>Dziennik audytu</h2><table><tr><th>czas</th><th>kto</th><th>akcja</th><th>szczegoly</th></tr>${a.map(x=>`<tr><td class="muted">${ts(x.ts)}</td><td>${esc(x.username)}</td><td>${esc(x.action)}</td><td class="mono">${esc(x.detail||'')}</td></tr>`).join('')}</table></div>`}
+start();
+</script>
+</body>
+</html>

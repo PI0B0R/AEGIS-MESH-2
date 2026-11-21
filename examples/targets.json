@@ -1,0 +1,5 @@
+{"targets": [
+  {"value": "10.10.1.0/24", "owner": "CBI", "tags": "lab"},
+  "10.10.2.15",
+  {"value": "staging.example.org", "tags": "staging"}
+]}

@@ -1,0 +1,4 @@
+ip,port,proto,service,product,version,hostname
+10.20.0.5,22,tcp,ssh,OpenSSH,9.6,srv5.example.org
+10.20.0.5,443,tcp,https,nginx,1.25.3,srv5.example.org
+10.20.0.6,3389,tcp,ms-wbt-server,,,
