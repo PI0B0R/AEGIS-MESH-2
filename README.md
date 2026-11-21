@@ -78,7 +78,13 @@ cd backend && python -m pytest -q     # statusy hostów, okno czasowe, sygnatury
 ```
 
 ## Aplikacja Android (`android-app/`)
-Kotlin + WebView, bez Compose. Otwórz folder w Android Studio (wygeneruje Gradle wrapper) i zbuduj APK.
+Kotlin + WebView, bez Compose.
+
+**Gotowy APK:** GitHub Actions buduje aplikację przy każdym pushu do `main` (workflow `Android APK`).
+Pobierz `aegis-mesh.apk` z wydania [apk-latest](../../releases/tag/apk-latest) (lub z artefaktów przebiegu w zakładce Actions),
+skopiuj na telefon i zainstaluj (zezwól na instalację z nieznanych źródeł). Build ręcznie: Actions → Android APK → Run workflow.
+
+Lokalnie: otwórz folder w Android Studio (wygeneruje Gradle wrapper) i zbuduj APK.
 - Ustawienia: adres serwera + **token API użytkownika z rolą `sensor`** (Użytkownicy → dodaj → rola sensor).
 - Start uruchamia Foreground Service (typ `location`): skan Wi-Fi co 30 s, wysyłka tylko nowych wyników, kolejka offline.
 - Miejsce pomiaru: kod QR na drzwiach z treścią `aegis://loc?b=B1&f=2&r=204` (zwykły aparat otwiera aplikację),
